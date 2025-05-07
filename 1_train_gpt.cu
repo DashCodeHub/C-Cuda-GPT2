@@ -1,6 +1,4 @@
-/*
-GPT-2 Transformer Neural Net training loop. See README.md for usage.
-*/
+
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -9,80 +7,37 @@ GPT-2 Transformer Neural Net training loop. See README.md for usage.
 #include <string_view>
 #include <sys/stat.h>
 #include <sys/types.h>
-// ----------- CPU utilities -----------
-// defines: fopenCheck, freadCheck, fcloseCheck, fseekCheck, mallocCheck
-// defines: create_dir_if_not_exists, find_max_step, ends_with_bin
+#include "model/10_fused_classifier.cuh"
+#include "model/8_adam.cuh"
+#include "model/4_globalnorm.cuh"
+#include "model/11_zero.cuh"
 #include "utils/1_utils.h"
-// defines: tokenizer_init, tokenizer_decode, tokenizer_free
 #include "data_utils/4_tokenizer.h"
-// defines: dataloader_init, dataloader_reset, dataloader_next_batch, dataloader_free
-// defines: evalloader_init, evalloader_reset, evalloader_next_batch, evalloader_free
 #include "data_utils/1_dataloader.h"
-// defines: manual_seed, normal_ (same as torch.manual_seed and torch.normal)
 #include "data_utils/2_rand.h"
-// defines: lr_scheduler_init, get_learning_rate
 #include "model/12_lr_schedulers.h"
-// defines: sample_softmax, random_f32
 #include "data_utils/3_sampler.h"
-// defines: logger_init, logger_log_eval, logger_log_val, logger_log_train
 #include "utils/4_logger.h"
-// defines: get_flops_promised
 #include "utils/5_model_flop_utilisation.h"
-// defines: OutlierDetector, init_detector, update_detector
 #include "utils/6_outlier_detector.h"
-// ----------- GPU utilities -----------
-// defines:
-// WARP_SIZE, MAX_1024_THREADS_BLOCKS, CEIL_DIV, cudaCheck, PRECISION_MODE
-// NVTX_RANGE_FN
 #include "utils/2_cuda_common_utils.h"
-// defines:
-// Packed128, f128, x128
-// warpReduceSum, warpReduceMax, blockReduce, copy_and_cast_kernel, cudaMallocConditionallyManaged
 #include "utils/7_cuda_utils.cuh"
-// defines: CUBLAS_LOWP, cublasCheck, cublaslt_workspace_size, cublaslt_workspace
-// defines: cublas_compute, cublaslt_handle, cublas_handle
 #include "utils/3_cublas_common_utils.h"
-// ----------- Layer implementations in CUDA -----------
-// defines: encoder_forward, encoder_backward
 #include "model/9_encoder.cuh"
-// defines: layernorm_forward, residual_forward, fused_residual_forward5, layernorm_backward
 #include "model/3_layernorm.cuh"
-// defines: matmul_cublaslt, matmul_forward, matmul_backward, gelu_forward, gelu_backward_inplace
 #include "model/2_matmul.cuh"
 #ifdef ENABLE_CUDNN
-// defines: create_cudnn, destroy_cudnn, attention_forward_cudnn, attention_backward_cudnn
 #include "model/5_cudnn_attention.h"
 #else
-// defines: attention_forward, attention_backward
 #include "model/7_attention.cuh"
 #endif
-// defines: fused_classifier
-#include "model/10_fused_classifier.cuh"
-// defines: adamw_kernel3
-#include "model/8_adam.cuh"
-// defines: global_norm_squared
-#include "model/4_globalnorm.cuh"
-// ----------- Multi-GPU support -----------
-// defines: ncclFloatX, ncclCheck, MultiGpuConfig, ShardInfo
-// defines: printf0, multi_gpu_config
-// defines: multi_gpu_config_init, multi_gpu_config_free
-// defines: set_zero_configs, multi_gpu_cpu_float_sum, multi_gpu_barrier
-// defines: multi_gpu_get_shard_offset, multi_gpu_async_reduce_gradient
-#include "model/11_zero.cuh"
 
-// ----------------------------------------------------------------------------
-// global vars for I/O
 char filename_buffer[512];
 
-// ----------------------------------------------------------------------------
-// global vars containing information about the GPU this process is running on
-cudaDeviceProp deviceProp; // fills in common_start()
+cudaDeviceProp deviceProp; 
 cudaStream_t main_stream;
-// buffer size to use for device <-> disk io
 constexpr const size_t IO_BUF_SIZE = 32 * 1024 * 1024;
 
-// ----------------------------------------------------------------------------
-// GPT-2 model definition
 
 typedef struct {
     int max_seq_len; // max sequence length, e.g. 1024
